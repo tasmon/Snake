@@ -36,13 +36,50 @@
   // ---------- STATE ----------
   let state = 'MENU_MAIN';
   let menuSel = 0;
-  const mainMenuItems = ['Start Game','Select Mode','Select Theme','High Scores'];
+  const mainMenuItems = ['Start Game','Select Mode','Select Theme','High Scores','Settings','Help','About'];
 
   // ---------- GAME VARS ----------
   let snake, dir, nextDir, apple, obstacles, score, level, stepMs, lastStep, gameOverReason;
   let boostReadyAt = 0, boostUntil = 0, boostFlashUntil = 0;
   let timeLeft = 0, timedStart = 0;
   let rafId = null;
+
+  // ---------- SETTINGS ----------
+  let soundOn = localStorage.getItem('snake_sound') !== '0';
+  let gridOn = localStorage.getItem('snake_grid') !== '0';
+  let settingsSel = 0;
+  let settingsMsg = '', settingsMsgUntil = 0;
+  const settingsItems = [
+    { label:'Sound', get:()=> soundOn ? 'On' : 'Off', act:()=>{ soundOn=!soundOn; localStorage.setItem('snake_sound', soundOn?'1':'0'); } },
+    { label:'Grid Lines', get:()=> gridOn ? 'On' : 'Off', act:()=>{ gridOn=!gridOn; localStorage.setItem('snake_grid', gridOn?'1':'0'); } },
+    { label:'Reset High Scores', get:()=> '', act:()=>{ MODES.forEach(m=>localStorage.removeItem(hsKey(m.key))); settingsMsg='Cleared!'; settingsMsgUntil=performance.now()+1200; } },
+  ];
+
+  // ---------- HELP PAGES ----------
+  let helpPage = 0;
+  const helpPages = [
+    { title:'OBJECTIVE', body:'Guide the snake to eat apples and grow as long as possible without crashing.' },
+    { title:'CONTROLS', body:'2/8/4/6 or arrows: move\n0: pause / resume\n5: boost (cooldown)\nEnter: select\nEsc: back' },
+    { title:'MODES', body:'Classic: walls kill\nNo Walls: wraps edges\nMaze: avoid blocks\nSpeed Rush: fast pace\nTimed Attack: 60s run' },
+    { title:'TIPS', body:'Boost briefly speeds you up but has a cooldown. Beat your high score for each mode separately.' },
+  ];
+
+  // ---------- SOUND ----------
+  let audioCtx = null;
+  function beep(freq, dur){
+    if (!soundOn) return;
+    try{
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(); osc.stop(audioCtx.currentTime + dur);
+    } catch(e) { /* audio unavailable, fail silently */ }
+  }
 
   function hsKey(m){ return 'snake_hs_' + m; }
   function getHighScore(m){ return parseInt(localStorage.getItem(hsKey(m))||'0',10); }
@@ -148,6 +185,23 @@
       if (has(KEY_BACK) || has(KEY_SELECT)) { state='MENU_MAIN'; menuSel=0; render(); }
       return;
     }
+    if (state === 'MENU_SETTINGS'){
+      if (has(KEY_UP)) { settingsSel=(settingsSel-1+settingsItems.length)%settingsItems.length; render(); }
+      else if (has(KEY_DOWN)) { settingsSel=(settingsSel+1)%settingsItems.length; render(); }
+      else if (has(KEY_SELECT)) { settingsItems[settingsSel].act(); render(); }
+      else if (has(KEY_BACK)) { state='MENU_MAIN'; menuSel=0; render(); }
+      return;
+    }
+    if (state === 'MENU_HELP'){
+      if (has(KEY_UP) || has(KEY_LEFT)) { helpPage=(helpPage-1+helpPages.length)%helpPages.length; render(); }
+      else if (has(KEY_DOWN) || has(KEY_RIGHT)) { helpPage=(helpPage+1)%helpPages.length; render(); }
+      else if (has(KEY_BACK) || has(KEY_SELECT)) { state='MENU_MAIN'; menuSel=0; render(); }
+      return;
+    }
+    if (state === 'MENU_ABOUT'){
+      if (has(KEY_BACK) || has(KEY_SELECT)) { state='MENU_MAIN'; menuSel=0; render(); }
+      return;
+    }
     if (state === 'EXITED'){
       state='MENU_MAIN'; menuSel=0; render();
       return;
@@ -155,10 +209,14 @@
   }
 
   function selectMain(){
-    if (menuSel===0){ resetGame(); state='PLAYING'; }
-    else if (menuSel===1){ state='MENU_MODE'; menuSel=modeIdx; }
-    else if (menuSel===2){ state='MENU_THEME'; menuSel=themeIdx; }
-    else if (menuSel===3){ state='MENU_HS'; menuSel=0; }
+    const choice = menuSel;
+    if (choice===0){ resetGame(); state='PLAYING'; }
+    else if (choice===1){ state='MENU_MODE'; menuSel=modeIdx; }
+    else if (choice===2){ state='MENU_THEME'; menuSel=themeIdx; }
+    else if (choice===3){ state='MENU_HS'; menuSel=0; }
+    else if (choice===4){ state='MENU_SETTINGS'; settingsSel=0; }
+    else if (choice===5){ state='MENU_HELP'; helpPage=0; }
+    else if (choice===6){ state='MENU_ABOUT'; }
     render();
   }
 
@@ -178,6 +236,7 @@
     boostUntil = now + 1500;
     boostFlashUntil = now + 1500;
     boostReadyAt = now + 4500;
+    beep(880, 0.1);
   }
 
   document.addEventListener('keydown', (e)=>{
@@ -190,6 +249,9 @@
     else if (state==='MENU_MODE') { modeIdx=menuSel; state='MENU_MAIN'; menuSel=0; render(); }
     else if (state==='MENU_THEME') { themeIdx=menuSel; state='MENU_MAIN'; menuSel=0; render(); }
     else if (state==='MENU_HS') { state='MENU_MAIN'; menuSel=0; render(); }
+    else if (state==='MENU_SETTINGS') { settingsItems[settingsSel].act(); render(); }
+    else if (state==='MENU_HELP') { helpPage=(helpPage+1)%helpPages.length; render(); }
+    else if (state==='MENU_ABOUT') { state='MENU_MAIN'; menuSel=0; render(); }
     else if (state==='PLAYING') { state='MENU_MAIN'; menuSel=0; render(); }
     else if (state==='PAUSED') doResume();
     else if (state==='GAMEOVER') { resetGame(); state='PLAYING'; render(); }
@@ -197,7 +259,7 @@
   });
   rskEl.addEventListener('click', ()=>{
     if (state==='MENU_MAIN') exitApp();
-    else if (['MENU_MODE','MENU_THEME','MENU_HS'].includes(state)) { state='MENU_MAIN'; menuSel=0; render(); }
+    else if (['MENU_MODE','MENU_THEME','MENU_HS','MENU_SETTINGS','MENU_HELP','MENU_ABOUT'].includes(state)) { state='MENU_MAIN'; menuSel=0; render(); }
     else if (state==='PLAYING' || state==='PAUSED') { state='MENU_MAIN'; menuSel=0; render(); }
     else if (state==='GAMEOVER') { state='MENU_MAIN'; menuSel=0; render(); }
     else if (state==='EXITED') { state='MENU_MAIN'; menuSel=0; render(); }
@@ -260,6 +322,7 @@
         stepMs = Math.max(mode().min, stepMs - mode().step);
       }
       spawnApple();
+      beep(660, 0.08);
     } else {
       snake.pop();
     }
@@ -269,6 +332,7 @@
     gameOverReason = reason;
     setHighScore(mode().key, score);
     state = 'GAMEOVER';
+    beep(140, 0.3);
   }
 
   // ---------- RENDER ----------
@@ -356,6 +420,37 @@
         '<div class="menuList">' +
         MODES.map(m=>'<div class="menuItem">'+m.name+': '+getHighScore(m.key)+'</div>').join('') +
         '</div>';
+    } else if (state === 'MENU_SETTINGS'){
+      sbLeft.textContent = 'SETTINGS';
+      sbRight.textContent = '';
+      setSoftkeys('Toggle','Back');
+      const msg = performance.now() < settingsMsgUntil ? '<div class="hint">'+settingsMsg+'</div>' : '';
+      overlay.innerHTML =
+        '<div class="title">SETTINGS</div>' +
+        '<div class="menuList">' +
+        settingsItems.map((it,i)=>
+          '<div class="menuItem'+(i===settingsSel?' sel':'')+'">'+(i===settingsSel?'> ':'  ')+it.label+(it.get()?': '+it.get():'')+'</div>'
+        ).join('') +
+        '</div>' + msg;
+    } else if (state === 'MENU_HELP'){
+      const p = helpPages[helpPage];
+      sbLeft.textContent = 'HELP';
+      sbRight.textContent = (helpPage+1)+'/'+helpPages.length;
+      setSoftkeys('Next','Back');
+      overlay.innerHTML =
+        '<div class="title">'+p.title+'</div>' +
+        '<div class="hint" style="font-size:9px; line-height:1.6;">'+p.body.replace(/\n/g,'<br>')+'</div>' +
+        '<div class="hint">2/8 to flip pages</div>';
+    } else if (state === 'MENU_ABOUT'){
+      sbLeft.textContent = 'ABOUT';
+      sbRight.textContent = '';
+      setSoftkeys('Back','Back');
+      overlay.innerHTML =
+        '<div class="title">Snake for CloudPhone</div>' +
+        '<div class="menuList">' +
+        '<div class="menuItem">Version: 1.0.2</div>' +
+        '<div class="menuItem">Developer: Tasmon Islam</div>' +
+        '</div>';
     } else if (state === 'EXITED'){
       sbLeft.textContent = 'SNAKE';
       sbRight.textContent = '';
@@ -369,13 +464,15 @@
     ctx.fillStyle = t.screenBg;
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
-    ctx.strokeStyle = t.grid;
-    ctx.lineWidth = 1;
-    for (let x=0;x<=COLS;x++){
-      ctx.beginPath(); ctx.moveTo(x*CELL,0); ctx.lineTo(x*CELL,ROWS*CELL); ctx.stroke();
-    }
-    for (let y=0;y<=ROWS;y++){
-      ctx.beginPath(); ctx.moveTo(0,y*CELL); ctx.lineTo(COLS*CELL,y*CELL); ctx.stroke();
+    if (gridOn){
+      ctx.strokeStyle = t.grid;
+      ctx.lineWidth = 1;
+      for (let x=0;x<=COLS;x++){
+        ctx.beginPath(); ctx.moveTo(x*CELL,0); ctx.lineTo(x*CELL,ROWS*CELL); ctx.stroke();
+      }
+      for (let y=0;y<=ROWS;y++){
+        ctx.beginPath(); ctx.moveTo(0,y*CELL); ctx.lineTo(COLS*CELL,y*CELL); ctx.stroke();
+      }
     }
 
     ctx.fillStyle = t.obstacle;
